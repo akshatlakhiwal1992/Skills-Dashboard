@@ -8,6 +8,7 @@ import dash
 from dash import dcc, html, Input, Output, State, ctx, dash_table
 import pandas as pd
 import plotly.graph_objects as go
+import os
 
 
 # In[2]:
@@ -349,12 +350,8 @@ def update_skills(active_cell, rows, selected, conf_type):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
-
-
-
-# In[ ]:
-
+    #import os
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 
 
@@ -432,6 +429,13 @@ if __name__ == '__main__':
 
 
 # In[ ]:
+
+
+
+
+
+# In[ ]:
+
 
 
 
