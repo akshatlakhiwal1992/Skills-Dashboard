@@ -8,7 +8,6 @@ import dash
 from dash import dcc, html, Input, Output, State, ctx, dash_table
 import pandas as pd
 import plotly.graph_objects as go
-import os
 
 
 # In[2]:
@@ -138,7 +137,9 @@ app.layout = html.Div([
     dcc.Store(id='selected-config'),
 
     html.H4("Occupations Matching Configuration"),
-    dash_table.DataTable(id='occupation-table', page_size=20),
+    html.Div(id='occupation-table-note'),  # ← add this line
+    dash_table.DataTable(id='occupation-table', page_size=10),
+
 
     html.H4("Skills for Selected Occupation"),
     dash_table.DataTable(id='skill-table', page_size=200)
@@ -228,12 +229,14 @@ def store_selection(clickData):
 
 @app.callback(
     Output('occupation-table', 'data'),
+    Output('occupation-table', 'columns'),
+    Output('occupation-table-note', 'children'),
     Input('selected-config', 'data'),
     Input('conf-type-dropdown', 'value')
 )
 def update_occupations(selected, conf_type):
     if not selected:
-        return []
+        return [], [], ""
 
     label = selected['label']
     year = selected['year']
@@ -248,8 +251,25 @@ def update_occupations(selected, conf_type):
     fs_file = f"./fsQCA_demandadjusted_{year}.csv" if "Adjusted" in conf_type else f"./fsQCA_demandunadjusted_{year}.csv"
     df = pd.read_csv(fs_file)
 
+    # Filter for exact match
     for col, include in conditions:
         df = df[df[col] > 0.5] if include else df[df[col] < 0.5]
+
+    # Compute match score
+    match_scores = []
+    for _, row in df.iterrows():
+        scores = []
+        for col, include in conditions:
+            value = row[col]
+            if include:
+                scores.append(value)  # higher is better
+            else:
+                scores.append(1 - value)  # lower is better
+        match_scores.append(sum(scores) / len(scores))
+
+    df = df.copy()
+    df['match_score'] = match_scores
+    df = df.sort_values(by='match_score', ascending=False)
 
     occ_codes = df['onetsoccode'].unique()
     combined_df = pd.read_csv(f"./combinedSkills_{year}.csv")
@@ -257,7 +277,19 @@ def update_occupations(selected, conf_type):
 
     results = pd.DataFrame({'Occupation Code': occ_codes})
     results['Occupation Title'] = results['Occupation Code'].map(title_map)
-    return results.to_dict('records')
+
+    # Add scores
+    results['Match Score'] = df['match_score'].values.round(3)
+    columns = [{"name": col, "id": col} for col in results.columns]
+
+    note = html.Div([
+        html.Em(
+            "Occupations shown meet all configuration conditions (exact match). "
+            "Sorted by match score: higher values indicate stronger alignment with the configuration."
+        )
+    ], style={"margin": "10px 0", "fontSize": "0.9em", "color": "gray"})
+
+    return results.to_dict('records'), columns, note
 
 
 @app.callback(
@@ -350,10 +382,19 @@ def update_skills(active_cell, rows, selected, conf_type):
 
 
 if __name__ == '__main__':
-    #import os
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run_server(debug=True, port=1010)
 
 
+# In[ ]:
+
+
+
+
+
+# In[ ]:
+
+
+get_ipython().system('jupyter nbconvert --to script Visualizing.ipynb')
 
 
 # In[ ]:
@@ -423,21 +464,6 @@ if __name__ == '__main__':
 
 
 # In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
 
 
 
