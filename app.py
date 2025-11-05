@@ -8,7 +8,6 @@ import dash
 from dash import dcc, html, Input, Output, State, ctx, dash_table
 import pandas as pd
 import plotly.graph_objects as go
-import os
 
 
 # In[2]:
@@ -28,13 +27,9 @@ configurations = {
             "High Wage": ["C*S*Y"],
             "Low Wage": ["~C", "P", "Y"]
         },
-        "Degree Included (Unadjusted)": {
+        "Degree Included": {
             "High Wage": ["C*S*Y", "C*S*D"],
             "Low Wage": ["~C", "P", "Y", "D"]
-        },
-        "Degree Included (Adjusted)": {
-            "High Wage": ["C*S*Y"],
-            "Low Wage": ["~C", "P", "Y", "~S*~D", "S*D"]
         }
     },
     "2016": {
@@ -42,13 +37,9 @@ configurations = {
             "High Wage": ["C*S*Y"],
             "Low Wage": ["~C", "P", "Y"]
         },
-        "Degree Included (Unadjusted)": {
+        "Degree Included": {
             "High Wage": ["C*S*Y", "C*S*D"],
             "Low Wage": ["~C", "P", "Y", "D"]
-        },
-        "Degree Included (Adjusted)": {
-            "High Wage": ["C*S*Y", "C*S*D"],
-            "Low Wage": ["~S", "~C", "Y", "D"]
         }
     },
     "2017": {
@@ -56,48 +47,32 @@ configurations = {
             "High Wage": ["C*S*Y"],
             "Low Wage": ["~C", "P", "Y"]
         },
-        "Degree Included (Unadjusted)": {
+        "Degree Included": {
             "High Wage": ["C*S*Y", "C*S*D"],
-            "Low Wage": ["~C", "P", "Y", "~S*~D", "S*D"]
-        },
-        "Degree Included (Adjusted)": {
-            "High Wage": ["C*S*Y"],
-            "Low Wage": ["~C", "P", "Y"]
+            "Low Wage": ["~C", "P", "Y", "S*D", "~S*~D"]
         }
     },
     "2018": {
         "Degree Excluded": {
-            "High Wage": ["P*C*S", "C*S*Y"],
+            "High Wage": ["C*S*Y", "P*C*S"],
             "Low Wage": ["~C", "P", "Y"]
         },
-        "Degree Included (Unadjusted)": {
-            "High Wage": ["P*C*S", "C*S*D", "~P*C*Y*~D"],
-            "Low Wage": ["~C", "P", "Y", "~S*~D", "S*D"]
-        },
-        "Degree Included (Adjusted)": {
-            "High Wage": ["C*S*Y", "C*S*D"],
-            "Low Wage": ["~C", "P", "Y", "~S*~D", "S*D"]
+        "Degree Included": {
+            "High Wage": ["C*S*D", "P*C*S", "~P*C*Y*~D"],
+            "Low Wage": ["~C", "P", "Y", "S*D", "~S*~D"]
         }
     },
     "2019": {
         "Degree Excluded": {
-            "High Wage": ["P*C*S", "C*S*Y"],
-            "Low Wage": ["~C", "P", "S*Y"]
+            "High Wage": ["C*S*Y", "P*C*S"],
+            "Low Wage": ["~C", "Y", "S*Y"]
         },
-        "Degree Included (Unadjusted)": {
-            "High Wage": ["~S*~D", "~C*~Y*~D", "~P*Y*~D", "C*S*D"],
-            "Low Wage": ["~S*~D", "S*D",  "~C*D", "P*C", "P*D"]
-        },
-        "Degree Included (Adjusted)": {
-            "High Wage": ["C*S", "~P*~Y*~D"],
-            "Low Wage": [
-                "~S*~D", "~C*~Y", "S*D", "~C*~S", "P*~S",
-                "~C*D", "P*C", "P*D"
-            ]
+        "Degree Included": {
+            "High Wage": ["C*S*D", "~S*~D", "~C*~Y*~D", "~P*Y*~D"],
+            "Low Wage": ["S*D", "~S*~D", "~C*~S", "P*D"]
         }
     }
 }
-#Removed from 2019: Adjusted: "C*Y*~D", "C*S*Y; Unadjusted: "~C*~S", "P*~S"
 
 
 # In[4]:
@@ -124,12 +99,9 @@ app.layout = html.Div([
     dcc.Dropdown(
         id='conf-type-dropdown',
         options=[
-            {"label": key, "value": key} for key in [
-                "Degree Excluded",
-                "Degree Included (Adjusted)",
-                "Degree Included (Unadjusted)"
-            ]
-        ],
+            {"label": "Degree Excluded", "value": "Degree Excluded"},
+            {"label": "Degree Included", "value": "Degree Included"}
+            ],
         value="Degree Excluded",
         style={"width": "50%"}
     ),
@@ -138,8 +110,9 @@ app.layout = html.Div([
     dcc.Store(id='selected-config'),
 
     html.H4("Occupations Matching Configuration"),
-    html.Div(id='occupation-table-note'),  # ← add this line
+    html.Div("Sorted in descending order of match score, which counts how many conditions from the selected configuration are satisfied by the occupation."),
     dash_table.DataTable(id='occupation-table', page_size=10),
+
 
 
     html.H4("Skills for Selected Occupation"),
@@ -230,18 +203,17 @@ def store_selection(clickData):
 
 @app.callback(
     Output('occupation-table', 'data'),
-    Output('occupation-table', 'columns'),
-    Output('occupation-table-note', 'children'),
     Input('selected-config', 'data'),
     Input('conf-type-dropdown', 'value')
 )
 def update_occupations(selected, conf_type):
     if not selected:
-        return [], [], ""
+        return []
 
     label = selected['label']
     year = selected['year']
 
+    # Parse configuration into variable conditions (True = presence, False = absence)
     conditions = []
     for cond in label.split("*"):
         if cond.startswith("~"):
@@ -249,48 +221,52 @@ def update_occupations(selected, conf_type):
         else:
             conditions.append((var_map[cond], True))
 
-    fs_file = f"./fsQCA_demandadjusted_{year}.csv" if "Adjusted" in conf_type else f"./fsQCA_demandunadjusted_{year}.csv"
-    df = pd.read_csv(fs_file)
+    # Load data (always unadjusted unless you add adjusted mode back later)
+    fs_file = f"./fsQCA_demandunadjusted_{year}.csv"
+    df = pd.read_csv(fs_file).copy()
 
-    # Filter for exact match
+    # ✅ STEP 1: True fsQCA configuration membership filter (not match score)
+    mask = pd.Series(True, index=df.index)
     for col, include in conditions:
-        df = df[df[col] > 0.5] if include else df[df[col] < 0.5]
+        if include:
+            mask &= (df[col] > 0.5)
+        else:
+            mask &= (df[col] < 0.5)
 
-    # Compute match score
+    df = df[mask].copy()  # Keep only occupations that satisfy the configuration
+
+    # ✅ STEP 2: Now compute match score *as validation only*
     match_scores = []
     for _, row in df.iterrows():
-        scores = []
+        values = []
         for col, include in conditions:
-            value = row[col]
+            val = row[col]  # fuzzy membership value (0–1)
             if include:
-                scores.append(value)  # higher is better
+                values.append(val)       # presence condition → use membership
             else:
-                scores.append(1 - value)  # lower is better
-        match_scores.append(sum(scores) / len(scores))
-
-    df = df.copy()
+                values.append(1 - val)   # absence condition → use complement
+        match_scores.append(sum(values) / len(values))  # mean similarity (0–1)
+    
     df['match_score'] = match_scores
+    df['avg_salary'] = df['m_fsY2_salary']
+
+    # Sort by salary or match score (since all are full matches, either is fine)
     df = df.sort_values(by='match_score', ascending=False)
 
-    occ_codes = df['onetsoccode'].unique()
+    # Load occupation titles
     combined_df = pd.read_csv(f"./combinedSkills_{year}.csv")
     title_map = dict(combined_df[['O*NET-SOC Code', 'Title']].drop_duplicates().values)
 
-    results = pd.DataFrame({'Occupation Code': occ_codes})
-    results['Occupation Title'] = results['Occupation Code'].map(title_map)
+    # ✅ Build final output
+    results = pd.DataFrame({
+        'Occupation Code': df['onetsoccode'],
+        'Occupation Title': [title_map.get(code, "") for code in df['onetsoccode']],
+        'Match Score': df['match_score'],
+        'Average Salary ($)': df['avg_salary']
+    })
 
-    # Add scores
-    results['Match Score'] = df['match_score'].values.round(3)
-    columns = [{"name": col, "id": col} for col in results.columns]
+    return results.to_dict('records')
 
-    note = html.Div([
-        html.Em(
-            "Occupations shown meet all configuration conditions (exact match). "
-            "Sorted by match score: higher values indicate stronger alignment with the configuration."
-        )
-    ], style={"margin": "10px 0", "fontSize": "0.9em", "color": "gray"})
-
-    return results.to_dict('records'), columns, note
 
 
 @app.callback(
@@ -383,19 +359,9 @@ def update_skills(active_cell, rows, selected, conf_type):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    app.run_server(debug=True, port=1010)
 
 
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
- 
 
 
 # In[ ]:
@@ -465,8 +431,6 @@ if __name__ == '__main__':
 
 
 # In[ ]:
-
-
 
 
 
