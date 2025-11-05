@@ -359,7 +359,7 @@ def update_skills(active_cell, rows, selected, conf_type):
 
 
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
 
 
@@ -431,6 +431,7 @@ if __name__ == '__main__':
 
 
 # In[ ]:
+
 
 
 
